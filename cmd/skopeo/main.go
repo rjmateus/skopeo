@@ -110,6 +110,7 @@ func createApp() (*cobra.Command, *globalOptions) {
 		standaloneVerifyCmd(),
 		tagsCmd(&opts),
 		untrustedSignatureDumpCmd(),
+		reposListCmd(&opts),
 	)
 	return rootCommand, &opts
 }
