@@ -5,27 +5,32 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 
-	"github.com/containers/common/pkg/auth"
-	commonFlag "github.com/containers/common/pkg/flag"
+	"github.com/containers/common/pkg/retry"
 	"github.com/containers/image/v5/docker"
-	"github.com/containers/image/v5/types"
 	"github.com/spf13/cobra"
 )
 
 type reposListOptions struct {
-	global    *globalOptions
-	loginOpts auth.LoginOptions
-	tlsVerify commonFlag.OptionalBool
+	global       *globalOptions
+	image        *imageOptions
+	retryOpts    *retry.Options
+	searchFilter string
+	limit        int
 }
 
 func reposListCmd(global *globalOptions) *cobra.Command {
+	sharedFlags, sharedOpts := sharedImageFlags()
+	imageFlags, imageOpts := dockerImageFlags(global, sharedOpts, nil, "", "")
+	retryFlags, retryOpts := retryFlags()
+
 	opts := reposListOptions{
-		global: global,
+		global:    global,
+		image:     imageOpts,
+		retryOpts: retryOpts,
 	}
 	cmd := &cobra.Command{
-		Use:     "list-repos [command options] REGISTRY",
+		Use:     "list-repos [command options] REGISTRY FILTER",
 		Short:   "List repositories of a container registry",
 		Long:    "List repositories of a container registry on a specified server.",
 		RunE:    commandAction(opts.run),
@@ -33,8 +38,14 @@ func reposListCmd(global *globalOptions) *cobra.Command {
 	}
 	adjustUsage(cmd)
 	flags := cmd.Flags()
-	commonFlag.OptionalBoolFlag(flags, &opts.tlsVerify, "tls-verify", "require HTTPS and verify certificates when accessing the registry")
-	flags.AddFlagSet(auth.GetLoginFlags(&opts.loginOpts))
+
+	flags.StringVar(&opts.searchFilter, "search", "", "String used to search the registry")
+	flags.IntVar(&opts.limit, "limit", 100, "number of elements returned")
+
+	flags.AddFlagSet(&sharedFlags)
+	flags.AddFlagSet(&imageFlags)
+	flags.AddFlagSet(&retryFlags)
+
 	return cmd
 }
 
@@ -42,18 +53,16 @@ func (opts *reposListOptions) run(args []string, stdout io.Writer) error {
 	ctx, cancel := opts.global.commandTimeoutContext()
 	defer cancel()
 
-	if len(args) != 2 {
-		return errorShouldDisplayUsage{errors.New("Exactly two non-option argument expected")}
+	if len(args) != 1 {
+		return errorShouldDisplayUsage{errors.New("Exactly one non-option argument expected")}
 	}
 
-	opts.loginOpts.Stdout = stdout
-	opts.loginOpts.Stdin = os.Stdin
-	opts.loginOpts.AcceptRepositories = true
-	sys := opts.global.newSystemContext()
-	if opts.tlsVerify.Present() {
-		sys.DockerInsecureSkipTLSVerify = types.NewOptionalBool(!opts.tlsVerify.Value())
+	sys, err := opts.image.newSystemContext()
+	if err != nil {
+		return err
 	}
-	outputData, err := docker.SearchRegistry(ctx, sys, args[0], args[1], 2)
+
+	outputData, err := docker.SearchRegistry(ctx, sys, args[0], opts.searchFilter, opts.limit)
 	if err != nil {
 		return err
 	}
