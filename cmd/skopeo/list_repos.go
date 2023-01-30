@@ -12,11 +12,10 @@ import (
 )
 
 type reposListOptions struct {
-	global       *globalOptions
-	image        *imageOptions
-	retryOpts    *retry.Options
-	searchFilter string
-	limit        int
+	global    *globalOptions
+	image     *imageOptions
+	retryOpts *retry.Options
+	limit     int
 }
 
 func reposListCmd(global *globalOptions) *cobra.Command {
@@ -32,14 +31,13 @@ func reposListCmd(global *globalOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "list-repos [command options] REGISTRY FILTER",
 		Short:   "List repositories of a container registry",
-		Long:    "List repositories of a container registry on a specified server.",
+		Long:    "List repositories of a container registry on a specified server. Filter is an optional parameter",
 		RunE:    commandAction(opts.run),
 		Example: `skopeo list-repos quay.io repo`,
 	}
 	adjustUsage(cmd)
 	flags := cmd.Flags()
 
-	flags.StringVar(&opts.searchFilter, "search", "", "String used to search the registry")
 	flags.IntVar(&opts.limit, "limit", 100, "number of elements returned")
 
 	flags.AddFlagSet(&sharedFlags)
@@ -53,8 +51,8 @@ func (opts *reposListOptions) run(args []string, stdout io.Writer) error {
 	ctx, cancel := opts.global.commandTimeoutContext()
 	defer cancel()
 
-	if len(args) != 1 {
-		return errorShouldDisplayUsage{errors.New("Exactly one non-option argument expected")}
+	if len(args) < 1 || len(args) > 2 {
+		return errorShouldDisplayUsage{errors.New("One or two non-option argument expected")}
 	}
 
 	sys, err := opts.image.newSystemContext()
@@ -62,7 +60,12 @@ func (opts *reposListOptions) run(args []string, stdout io.Writer) error {
 		return err
 	}
 
-	outputData, err := docker.SearchRegistry(ctx, sys, args[0], opts.searchFilter, opts.limit)
+	image := ""
+	if len(args) == 2 {
+		image = args[1]
+	}
+
+	outputData, err := docker.SearchRegistry(ctx, sys, args[0], image, opts.limit)
 	if err != nil {
 		return err
 	}
